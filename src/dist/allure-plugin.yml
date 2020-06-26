@@ -2,4 +2,4 @@ id: server
 name: Report Server
 description: Plugin send test results to the report server
 extensions:
-  - io.qameta.allure.report.ReportServerPlugin
+  - io.qameta.allure.server.ReportServerPlugin

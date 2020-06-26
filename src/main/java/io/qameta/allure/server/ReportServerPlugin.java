@@ -19,24 +19,22 @@ import io.qameta.allure.Aggregator;
 import io.qameta.allure.core.Configuration;
 import io.qameta.allure.core.LaunchResults;
 import io.qameta.allure.entity.Statistic;
+import io.qameta.allure.server.clients.TestAttachmentApi;
+import io.qameta.allure.server.clients.TestRunApi;
+import io.qameta.allure.server.dto.TestAttachmentDTO;
+import io.qameta.allure.server.dto.TestRunConfigurationDTO;
+import io.qameta.allure.server.dto.TestRunDTO;
+import io.qameta.allure.server.dto.TestRunStatisticsDTO;
 import io.qameta.allure.server.feign.FeignClientBuilder;
-import io.space.geek.tms.commons.client.report.TestAttachmentApi;
-import io.space.geek.tms.commons.client.report.TestRunApi;
-import io.space.geek.tms.commons.dto.report.TestAttachmentDTO;
-import io.space.geek.tms.commons.dto.report.TestRunConfigurationDTO;
-import io.space.geek.tms.commons.dto.report.TestRunDTO;
-import io.space.geek.tms.commons.dto.report.TestRunStatisticsDTO;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static io.qameta.allure.util.PropertyUtils.getProperty;
@@ -54,34 +52,22 @@ public class ReportServerPlugin implements Aggregator {
     private static final String ALLURE_REPORT_SERVER_ENABLED = "ALLURE_REPORT_SERVER_ENABLED";
 
     private final ReportEnvironmentParameters envParameters;
-    private final TestRunApi testRunApi;
-    private final TestAttachmentApi testAttachmentApi;
+    private final Supplier<FeignClientBuilder> clientBuilder;
+    private TestAttachmentApi testAttachmentApi;
 
     private final boolean enabled;
 
     public ReportServerPlugin() {
         this(
             getProperty(ALLURE_REPORT_SERVER_ENABLED).map(Boolean::parseBoolean).orElse(false),
-            new FeignClientBuilder().defaults()
+            () -> new FeignClientBuilder().defaults()
         );
     }
 
-    public ReportServerPlugin(boolean enabled, FeignClientBuilder clientBuilder) {
-        this(
-            enabled,
-            clientBuilder.createClient(TestRunApi.class),
-            clientBuilder.createClient(TestAttachmentApi.class)
-        );
-    }
-
-    public ReportServerPlugin(boolean enabled,
-                              TestRunApi testRunApi,
-                              TestAttachmentApi testAttachmentApi) {
+    public ReportServerPlugin(boolean enabled, Supplier<FeignClientBuilder> clientBuilder) {
         this.enabled = enabled;
         this.envParameters = new ReportEnvironmentParameters();
-
-        this.testRunApi = testRunApi;
-        this.testAttachmentApi = testAttachmentApi;
+        this.clientBuilder = clientBuilder;
     }
 
     @Override
@@ -90,12 +76,15 @@ public class ReportServerPlugin implements Aggregator {
                           Path outputDirectory) {
         if (enabled) {
             log.info("Upload test results to report server");
+            TestRunApi testRunApi = clientBuilder.get().createClient(TestRunApi.class);
+            testAttachmentApi = clientBuilder.get().createClient(TestAttachmentApi.class);
 
             TestRunDTO runDTO = getTestRunDTO(launchesResults);
-            testRunApi.createTestRun(runDTO);
+            TestRunDTO testRunDTO = testRunApi.createTestRun(runDTO);
+            log.info("Successfully created testRun: [{}]", testRunDTO);
 
             List<TestAttachmentDTO> uploadedAttachments = new LinkedList<>();
-            launchesResults.forEach(launchResults -> uploadedAttachments.addAll(uploadAttachments(runDTO.getName(), launchResults)));
+            launchesResults.forEach(launchResults -> uploadedAttachments.addAll(uploadAttachments(testRunDTO.getId(), launchResults)));
             log.info("Successfully saved [{}] attachments on report server", uploadedAttachments.size());
         }
     }
@@ -133,19 +122,14 @@ public class ReportServerPlugin implements Aggregator {
         return runDTO;
     }
 
-    private List<TestAttachmentDTO> uploadAttachments(String runName, LaunchResults results) {
+    private List<TestAttachmentDTO> uploadAttachments(String runId, LaunchResults results) {
         return results.getAttachments().entrySet().stream()
             .map(entry -> {
                 File filePath = entry.getKey().toFile();
-                String name = entry.getValue().getName();
-                try {
-                    MockMultipartFile file = new MockMultipartFile(name, entry.getValue().getUid(), null, new FileInputStream(filePath));
-                    String url = testAttachmentApi.uploadAttachment(file, runName, entry.getValue().getUid());
-                    return TestAttachmentDTO.builder().url(url).uid(entry.getValue().getUid()).build();
-                } catch (IOException e) {
-                    log.error("Error during upload file [{}] in path [{}] to the server", filePath.toString(), name, e);
-                }
-                return null;
+                File file = new File(filePath.toURI());
+                log.info("Upload file: [{}] with runId [{}] and UID [{}]", file, runId, entry.getValue().getUid());
+                String url = testAttachmentApi.uploadAttachment(file, runId);
+                return TestAttachmentDTO.builder().url(url).uid(entry.getValue().getUid()).build();
             })
             .filter(Objects::nonNull)
             .collect(Collectors.toList());

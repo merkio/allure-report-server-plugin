@@ -20,18 +20,19 @@ import io.qameta.allure.core.Configuration;
 import io.qameta.allure.core.LaunchResults;
 import io.qameta.allure.entity.Status;
 import io.qameta.allure.entity.TestResult;
-import io.space.geek.tms.commons.client.report.TestAttachmentApi;
-import io.space.geek.tms.commons.client.report.TestRunApi;
-import io.space.geek.tms.commons.dto.report.TestRunDTO;
+import io.qameta.allure.server.clients.TestAttachmentApi;
+import io.qameta.allure.server.clients.TestRunApi;
+import io.qameta.allure.server.dto.TestRunDTO;
+import io.qameta.allure.server.feign.FeignClientBuilder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.mock.web.MockMultipartFile;
 
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import static io.qameta.allure.entity.LabelName.FEATURE;
 import static io.qameta.allure.entity.LabelName.STORY;
@@ -57,15 +58,17 @@ class ReportServerPluginTest {
 
         LaunchResults results = new DefaultLaunchResults(testResults, Collections.emptyMap(), Collections.emptyMap());
 
-        TestRunApi testRunApi = TestData.testRunApi();
-        TestAttachmentApi testAttachmentApi = TestData.testAttachmentApi();
+        Supplier<FeignClientBuilder> clientBuilder = TestData.clientBuilder();
+        ReportServerPlugin reportServerPlugin = new ReportServerPlugin(true, clientBuilder);
 
-        ReportServerPlugin reportServerPlugin = new ReportServerPlugin(true, testRunApi, testAttachmentApi);
+        TestRunApi testRunApi = clientBuilder.get().createClient(TestRunApi.class);
+        TestAttachmentApi testAttachmentApi = clientBuilder.get().createClient(TestAttachmentApi.class);
 
         reportServerPlugin.aggregate(mock(Configuration.class),
                                      Collections.singletonList(results),
                                      Paths.get("/"));
+
         verify(testRunApi, times(1)).createTestRun(any(TestRunDTO.class));
-        verify(testAttachmentApi, times(0)).uploadAttachment(any(MockMultipartFile.class), anyString(), anyString());
+        verify(testAttachmentApi, times(0)).uploadAttachment(any(), anyString(), anyString());
     }
 }

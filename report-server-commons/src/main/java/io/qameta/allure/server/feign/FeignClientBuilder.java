@@ -10,8 +10,10 @@ import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer;
 import feign.Feign;
 import feign.Logger;
 import feign.RequestInterceptor;
+import feign.form.FormEncoder;
 import feign.jackson.JacksonDecoder;
 import feign.jackson.JacksonEncoder;
+import feign.okhttp.OkHttpClient;
 import feign.slf4j.Slf4jLogger;
 import io.qameta.allure.util.PropertyUtils;
 
@@ -47,15 +49,22 @@ public class FeignClientBuilder {
         .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
 
     public <T> T createClient(Class<T> type) {
-        return createClient(type, requestInterceptor);
+        return Feign.builder()
+            .client(new OkHttpClient())
+            .encoder(new FormEncoder(new JacksonEncoder(OBJECT_MAPPER)))
+            .decoder(new JacksonDecoder(OBJECT_MAPPER))
+            .logger(new Slf4jLogger())
+            .logLevel(Logger.Level.FULL)
+            .target(type, endpoint);
     }
 
     public <T> T createClient(Class<T> type, RequestInterceptor requestInterceptor) {
         return Feign.builder()
-            .encoder(new JacksonEncoder(OBJECT_MAPPER))
+            .client(new OkHttpClient())
+            .encoder(new FormEncoder(new JacksonEncoder(OBJECT_MAPPER)))
             .decoder(new JacksonDecoder(OBJECT_MAPPER))
-            .requestInterceptor(requestInterceptor)
             .logger(new Slf4jLogger())
+            .requestInterceptor(requestInterceptor)
             .logLevel(Logger.Level.FULL)
             .target(type, endpoint);
     }
