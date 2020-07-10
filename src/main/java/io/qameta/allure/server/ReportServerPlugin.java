@@ -128,8 +128,8 @@ public class ReportServerPlugin implements Aggregator {
                 File filePath = entry.getKey().toFile();
                 File file = new File(filePath.toURI());
                 log.info("Upload file: [{}] with runId [{}] and UID [{}]", file, runId, entry.getValue().getUid());
-                String url = testAttachmentApi.uploadAttachment(file, runId);
-                return TestAttachmentDTO.builder().url(url).uid(entry.getValue().getUid()).build();
+                testAttachmentApi.uploadAttachment(file, runId);
+                return TestAttachmentDTO.builder().url(String.format("%s/%s", runId, file.getName())).uid(entry.getValue().getUid()).build();
             })
             .filter(Objects::nonNull)
             .collect(Collectors.toList());
